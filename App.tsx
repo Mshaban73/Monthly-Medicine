@@ -1,10 +1,27 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Patient, Product, InvoiceItem, PatientMedication } from './types';
-import { PATIENTS, PRODUCTS, PATIENT_MEDICATIONS as initialPatientMeds } from './data/mockData';
 import { TrashIcon, SaveIcon, ExportIcon, PlusIcon, StarIcon } from './components/icons';
 import { exportToPDF } from './services/pdfExporter';
 import { CollapsibleSection } from './components/CollapsibleSection';
 import { DataManager } from './components/DataManager';
+
+// --- Local Storage Keys ---
+const LOCAL_STORAGE_KEYS = {
+    PATIENTS: 'pharmacy_patients_v1',
+    PRODUCTS: 'pharmacy_products_v1',
+    PATIENT_MEDICATIONS: 'pharmacy_patient_meds_v1',
+};
+
+// --- Helper function to load from localStorage ---
+const loadFromStorage = <T,>(key: string, fallback: T): T => {
+    try {
+        const saved = localStorage.getItem(key);
+        return saved ? JSON.parse(saved) : fallback;
+    } catch (error) {
+        console.error(`Failed to parse ${key} from localStorage`, error);
+        return fallback;
+    }
+};
 
 // --- Reusable Components (Defined outside App to prevent re-creation on re-renders) ---
 
@@ -99,14 +116,28 @@ const ProductAdder: React.FC<ProductAdderProps> = ({ products, onAdd, existingId
 // --- Main App Component ---
 
 const App: React.FC = () => {
-    const [patients, setPatients] = useState<Patient[]>(PATIENTS);
-    const [products, setProducts] = useState<Product[]>(PRODUCTS);
-    const [patientMedications, setPatientMedications] = useState<PatientMedication[]>(initialPatientMeds);
+    const [patients, setPatients] = useState<Patient[]>(() => loadFromStorage(LOCAL_STORAGE_KEYS.PATIENTS, []));
+    const [products, setProducts] = useState<Product[]>(() => loadFromStorage(LOCAL_STORAGE_KEYS.PRODUCTS, []));
+    const [patientMedications, setPatientMedications] = useState<PatientMedication[]>(() => loadFromStorage(LOCAL_STORAGE_KEYS.PATIENT_MEDICATIONS, []));
     
     const [selectedPatientId, setSelectedPatientId] = useState<string>('all');
     const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
     const [newlyAddedDefaults, setNewlyAddedDefaults] = useState<Set<string>>(new Set());
     const [statusMessage, setStatusMessage] = useState<{text: string; type: 'success' | 'error'} | null>(null);
+    
+    // --- Effects to save data to localStorage ---
+    useEffect(() => {
+        localStorage.setItem(LOCAL_STORAGE_KEYS.PATIENTS, JSON.stringify(patients));
+    }, [patients]);
+    
+    useEffect(() => {
+        localStorage.setItem(LOCAL_STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
+    }, [products]);
+
+    useEffect(() => {
+        localStorage.setItem(LOCAL_STORAGE_KEYS.PATIENT_MEDICATIONS, JSON.stringify(patientMedications));
+    }, [patientMedications]);
+
 
     useEffect(() => {
         let items: InvoiceItem[] = [];
@@ -183,6 +214,8 @@ const App: React.FC = () => {
         exportToPDF(patient, invoiceItems, totals);
     };
 
+    // --- Data Management Handlers ---
+
     const handleAddPatient = useCallback((name: string) => {
         const newPatient: Patient = {
             id: `p_${Date.now()}`,
@@ -191,6 +224,22 @@ const App: React.FC = () => {
         setPatients(current => [...current, newPatient]);
         showStatusMessage(`تمت إضافة المريض "${name}" بنجاح.`, 'success');
     }, []);
+    
+    const handleUpdatePatient = useCallback((id: string, name: string) => {
+        setPatients(current => current.map(p => p.id === id ? { ...p, name } : p));
+        showStatusMessage('تم تحديث اسم المريض بنجاح.', 'success');
+    }, []);
+    
+    const handleDeletePatient = useCallback((id: string) => {
+        if (window.confirm('هل أنت متأكد من حذف هذا المريض؟ سيتم حذف جميع الأدوية المعتادة المرتبطة به.')) {
+            setPatients(current => current.filter(p => p.id !== id));
+            setPatientMedications(current => current.filter(pm => pm.patientId !== id));
+            if (selectedPatientId === id) {
+                setSelectedPatientId('all');
+            }
+            showStatusMessage('تم حذف المريض بنجاح.', 'success');
+        }
+    }, [selectedPatientId]);
 
     const handleAddProduct = useCallback((name: string, price: number) => {
         const newProduct: Product = {
@@ -201,6 +250,25 @@ const App: React.FC = () => {
         setProducts(current => [...current, newProduct]);
         showStatusMessage(`تمت إضافة الصنف "${name}" بنجاح.`, 'success');
     }, []);
+
+    const handleUpdateProduct = useCallback((id: string, name: string, price: number) => {
+        setProducts(current => current.map(p => p.id === id ? { ...p, name, price } : p));
+        // Also update it in the current invoice if present
+        setInvoiceItems(current => current.map(item =>
+            item.productId === id ? { ...item, name, price } : item
+        ));
+        showStatusMessage('تم تحديث الصنف بنجاح.', 'success');
+    }, []);
+
+    const handleDeleteProduct = useCallback((id: string) => {
+        if (window.confirm('هل أنت متأكد من حذف هذا الصنف؟ سيتم حذفه من قوائم جميع المرضى وفاتورتك الحالية.')) {
+            setProducts(current => current.filter(p => p.id !== id));
+            setPatientMedications(current => current.filter(pm => pm.productId !== id));
+            setInvoiceItems(current => current.filter(item => item.productId !== id));
+            showStatusMessage('تم حذف الصنف بنجاح.', 'success');
+        }
+    }, []);
+
 
     const existingItemIds = useMemo(() => new Set(invoiceItems.map(item => item.productId)), [invoiceItems]);
 
@@ -275,7 +343,11 @@ const App: React.FC = () => {
                         patients={patients}
                         products={products}
                         onAddPatient={handleAddPatient}
+                        onUpdatePatient={handleUpdatePatient}
+                        onDeletePatient={handleDeletePatient}
                         onAddProduct={handleAddProduct}
+                        onUpdateProduct={handleUpdateProduct}
+                        onDeleteProduct={handleDeleteProduct}
                     />
                 </CollapsibleSection>
             </div>
