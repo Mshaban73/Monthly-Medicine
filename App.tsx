@@ -4,6 +4,7 @@ import { TrashIcon, SaveIcon, ExportIcon, PlusIcon, StarIcon } from './component
 import { exportToPDF } from './services/pdfExporter';
 import { CollapsibleSection } from './components/CollapsibleSection';
 import { DataManager } from './components/DataManager';
+import { SearchableSelector } from './components/SearchableSelector';
 
 // --- Local Storage Keys ---
 const LOCAL_STORAGE_KEYS = {
@@ -76,43 +77,6 @@ const InvoiceRow: React.FC<InvoiceRowProps> = ({ item, onUpdate, onRemove, onTog
     );
 };
 
-
-interface ProductAdderProps {
-    products: Product[];
-    onAdd: (product: Product) => void;
-    existingIds: Set<string>;
-}
-
-const ProductAdder: React.FC<ProductAdderProps> = ({ products, onAdd, existingIds }) => {
-    const [selectedProductId, setSelectedProductId] = useState<string>('');
-    const availableProducts = products.filter(p => !existingIds.has(p.id));
-
-    const handleAdd = () => {
-        if (!selectedProductId) return;
-        const productToAdd = products.find(p => p.id === selectedProductId);
-        if (productToAdd) {
-            onAdd(productToAdd);
-            setSelectedProductId('');
-        }
-    };
-    
-    return (
-        <div className="mt-6 flex items-center space-x-2 space-x-reverse border-t pt-4">
-            <select value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value)} className="block w-full p-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
-                <option value="">اختر صنفاً جديداً لإضافته للفاتورة...</option>
-                {availableProducts.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} - {p.price.toFixed(2)}</option>
-                ))}
-            </select>
-            <button onClick={handleAdd} disabled={!selectedProductId} className="flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed shrink-0">
-                <PlusIcon />
-                <span className="mr-2">إضافة</span>
-            </button>
-        </div>
-    );
-};
-
-
 // --- Main App Component ---
 
 const App: React.FC = () => {
@@ -165,6 +129,7 @@ const App: React.FC = () => {
     }, []);
 
     const handleAddItem = useCallback((product: Product) => {
+        if (!product) return;
         setInvoiceItems(currentItems => [...currentItems, { productId: product.id, name: product.name, price: product.price, quantity: 1, discount: 0, isNew: true }]);
     }, []);
 
@@ -271,6 +236,15 @@ const App: React.FC = () => {
 
 
     const existingItemIds = useMemo(() => new Set(invoiceItems.map(item => item.productId)), [invoiceItems]);
+    
+    const selectedPatient = useMemo(() => {
+        return patients.find(p => p.id === selectedPatientId) || null;
+    }, [selectedPatientId, patients]);
+
+    const availableProducts = useMemo(() => {
+        return products.filter(p => !existingItemIds.has(p.id));
+    }, [products, existingItemIds]);
+
 
     return (
         <div className="font-sans min-h-screen p-4 sm:p-6 lg:p-8">
@@ -282,11 +256,19 @@ const App: React.FC = () => {
 
                 <main>
                     <div className="mb-6">
-                        <label htmlFor="patient-select" className="block text-sm font-medium text-gray-700 mb-1">اختر المريض</label>
-                        <select id="patient-select" value={selectedPatientId} onChange={(e) => setSelectedPatientId(e.target.value)} className="block w-full md:w-1/3 p-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
-                            <option value="all">عرض كل الأصناف (بدون مريض)</option>
-                            {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
+                        <label htmlFor="patient-search" className="block text-sm font-medium text-gray-700 mb-1">اختر المريض</label>
+                         <div className="md:w-1/3">
+                            <SearchableSelector
+                                items={patients}
+                                selectedItem={selectedPatient}
+                                onSelect={(patient) => setSelectedPatientId(patient.id)}
+                                onClear={() => setSelectedPatientId('all')}
+                                itemToString={(p) => p ? p.name : ''}
+                                itemToKey={(p) => p.id}
+                                filterFn={(p, q) => p.name.toLowerCase().includes(q.toLowerCase())}
+                                placeholder="ابحث عن مريض أو اتركه فارغاً لعرض الكل"
+                            />
+                        </div>
                     </div>
 
                     <div className="overflow-x-auto rounded-lg border">
@@ -316,7 +298,25 @@ const App: React.FC = () => {
                         </table>
                     </div>
                     
-                    { selectedPatientId !== 'all' && <ProductAdder products={products} onAdd={handleAddItem} existingIds={existingItemIds} /> }
+                    { selectedPatientId !== 'all' && (
+                         <div className="mt-6 border-t pt-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">إضافة صنف للفاتورة</label>
+                            <div className="flex items-start space-x-2 space-x-reverse">
+                                <div className="flex-grow md:w-1/2">
+                                    <SearchableSelector
+                                        items={availableProducts}
+                                        selectedItem={null}
+                                        onSelect={handleAddItem}
+                                        itemToString={(p) => p ? `${p.name} - ${p.price.toFixed(2)}` : ''}
+                                        itemToKey={(p) => p.id}
+                                        filterFn={(p, q) => p.name.toLowerCase().includes(q.toLowerCase())}
+                                        placeholder="ابحث عن صنف لإضافته..."
+                                        clearOnSelect={true}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="mt-8 flex flex-col-reverse md:flex-row justify-between items-start gap-6">
                          <div className="flex space-x-2 space-x-reverse">
