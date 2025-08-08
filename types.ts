@@ -1,4 +1,3 @@
-
 export interface Patient {
   id: string;
   name: string;
@@ -13,6 +12,8 @@ export interface Product {
 export interface PatientMedication {
   patientId: string;
   productId: string;
+  quantity: number; // The last-used/default quantity
+  discount: number; // The last-used/default discount
 }
 
 export interface InvoiceItem {
@@ -21,5 +22,4 @@ export interface InvoiceItem {
   price: number;
   quantity: number;
   discount: number;
-  isNew?: boolean; // To track items added during the session to show the "save as default" option
 }

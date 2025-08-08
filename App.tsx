@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Patient, Product, InvoiceItem, PatientMedication } from './types';
-import { TrashIcon, SaveIcon, ExportIcon, PlusIcon, StarIcon } from './components/icons';
+import { TrashIcon, SaveIcon, ExportIcon } from './components/icons';
 import { exportToPDF } from './services/pdfExporter';
 import { CollapsibleSection } from './components/CollapsibleSection';
 import { DataManager } from './components/DataManager';
@@ -10,7 +10,7 @@ import { SearchableSelector } from './components/SearchableSelector';
 const LOCAL_STORAGE_KEYS = {
     PATIENTS: 'pharmacy_patients_v1',
     PRODUCTS: 'pharmacy_products_v1',
-    PATIENT_MEDICATIONS: 'pharmacy_patient_meds_v1',
+    PATIENT_MEDICATIONS: 'pharmacy_patient_meds_v2', // Version updated for new data structure
 };
 
 // --- Helper function to load from localStorage ---
@@ -30,11 +30,9 @@ interface InvoiceRowProps {
     item: InvoiceItem;
     onUpdate: (item: InvoiceItem) => void;
     onRemove: (productId: string) => void;
-    onToggleDefault: (productId: string) => void;
-    isMarkedAsDefault: boolean;
 }
 
-const InvoiceRow: React.FC<InvoiceRowProps> = ({ item, onUpdate, onRemove, onToggleDefault, isMarkedAsDefault }) => {
+const InvoiceRow: React.FC<InvoiceRowProps> = ({ item, onUpdate, onRemove }) => {
     const handleQuantityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const quantity = parseInt(e.target.value, 10) || 0;
         onUpdate({ ...item, quantity });
@@ -62,16 +60,9 @@ const InvoiceRow: React.FC<InvoiceRowProps> = ({ item, onUpdate, onRemove, onTog
             </td>
             <td className="p-3 text-center font-semibold text-gray-800">{netPrice}</td>
             <td className="p-3 text-center">
-                <div className="flex items-center justify-center space-x-2 space-x-reverse">
-                    {item.isNew && (
-                         <button onClick={() => onToggleDefault(item.productId)} title="حفظ كصنف معتاد للمريض">
-                            <StarIcon filled={isMarkedAsDefault} />
-                        </button>
-                    )}
-                     <button onClick={() => onRemove(item.productId)} className="text-gray-400 hover:text-red-600 transition-colors" title="إزالة الصنف">
-                        <TrashIcon />
-                    </button>
-                </div>
+                <button onClick={() => onRemove(item.productId)} className="text-gray-400 hover:text-red-600 transition-colors" title="إزالة الصنف">
+                    <TrashIcon />
+                </button>
             </td>
         </tr>
     );
@@ -86,7 +77,6 @@ const App: React.FC = () => {
     
     const [selectedPatientId, setSelectedPatientId] = useState<string>('all');
     const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
-    const [newlyAddedDefaults, setNewlyAddedDefaults] = useState<Set<string>>(new Set());
     const [statusMessage, setStatusMessage] = useState<{text: string; type: 'success' | 'error'} | null>(null);
     
     // --- Effects to save data to localStorage ---
@@ -105,14 +95,31 @@ const App: React.FC = () => {
 
     useEffect(() => {
         let items: InvoiceItem[] = [];
+        const productMap = new Map(products.map(p => [p.id, p]));
+
         if (selectedPatientId === 'all') {
-            items = products.map(p => ({ productId: p.id, name: p.name, price: p.price, quantity: 1, discount: 0 }));
+            items = products.map(p => ({
+                productId: p.id,
+                name: p.name,
+                price: p.price,
+                quantity: 1,
+                discount: 0
+            }));
         } else if (selectedPatientId) {
-            const defaultProductIds = new Set(patientMedications.filter(pm => pm.patientId === selectedPatientId).map(pm => pm.productId));
-            items = products.filter(p => defaultProductIds.has(p.id)).map(p => ({ productId: p.id, name: p.name, price: p.price, quantity: 1, discount: 0 }));
+            const defaultMeds = patientMedications.filter(pm => pm.patientId === selectedPatientId);
+            items = defaultMeds.map(med => {
+                const product = productMap.get(med.productId);
+                if (!product) return null;
+                return {
+                    productId: product.id,
+                    name: product.name,
+                    price: product.price,
+                    quantity: med.quantity, // Use saved quantity
+                    discount: med.discount, // Use saved discount
+                };
+            }).filter((item): item is InvoiceItem => item !== null);
         }
         setInvoiceItems(items);
-        setNewlyAddedDefaults(new Set());
     }, [selectedPatientId, products, patientMedications]);
 
     const handleUpdateItem = useCallback((updatedItem: InvoiceItem) => {
@@ -121,29 +128,18 @@ const App: React.FC = () => {
 
     const handleRemoveItem = useCallback((productId: string) => {
         setInvoiceItems(currentItems => currentItems.filter(item => item.productId !== productId));
-        setNewlyAddedDefaults(currentDefaults => {
-            const newDefaults = new Set(currentDefaults);
-            newDefaults.delete(productId);
-            return newDefaults;
-        });
     }, []);
 
     const handleAddItem = useCallback((product: Product) => {
-        if (!product) return;
-        setInvoiceItems(currentItems => [...currentItems, { productId: product.id, name: product.name, price: product.price, quantity: 1, discount: 0, isNew: true }]);
-    }, []);
-
-    const handleToggleDefault = useCallback((productId: string) => {
-         setNewlyAddedDefaults(currentDefaults => {
-            const newDefaults = new Set(currentDefaults);
-            if (newDefaults.has(productId)) {
-                newDefaults.delete(productId);
-            } else {
-                newDefaults.add(productId);
-            }
-            return newDefaults;
-        });
-    }, []);
+        if (!product || invoiceItems.some(item => item.productId === product.id)) return;
+        setInvoiceItems(currentItems => [...currentItems, { 
+            productId: product.id, 
+            name: product.name, 
+            price: product.price, 
+            quantity: 1, 
+            discount: 0 
+        }]);
+    }, [invoiceItems]);
 
     const totals = useMemo(() => {
         const subtotal = invoiceItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -159,18 +155,24 @@ const App: React.FC = () => {
 
     const handleSaveInvoice = () => {
         if (!selectedPatientId || selectedPatientId === 'all') {
-            showStatusMessage('يرجى اختيار مريض لحفظ الفاتورة وتحديث أصنافه المعتادة.', 'error');
+            showStatusMessage('يرجى اختيار مريض لحفظ التغييرات.', 'error');
             return;
         }
 
-        if(newlyAddedDefaults.size > 0) {
-            const newMeds: PatientMedication[] = Array.from(newlyAddedDefaults).map((productId) => ({ patientId: selectedPatientId, productId }));
-            setPatientMedications(currentMeds => [...currentMeds, ...newMeds]);
-            showStatusMessage(`تم تحديث قائمة المريض بـ ${newMeds.length} صنف جديد بنجاح.`, 'success');
-        } else {
-            showStatusMessage('تم حفظ الفاتورة. لم يتم تغيير قائمة الأصناف المعتادة للمريض.', 'success');
-        }
-        setSelectedPatientId('all');
+        const updatedPatientMeds: PatientMedication[] = invoiceItems.map(item => ({
+            patientId: selectedPatientId,
+            productId: item.productId,
+            quantity: item.quantity,
+            discount: item.discount,
+        }));
+        
+        setPatientMedications(currentMeds => {
+            const otherPatientsMeds = currentMeds.filter(pm => pm.patientId !== selectedPatientId);
+            return [...otherPatientsMeds, ...updatedPatientMeds];
+        });
+
+        showStatusMessage(`تم تحديث القائمة المعتادة للمريض بنجاح.`, 'success');
+        setSelectedPatientId('all'); // Reset after saving
     };
     
     const handleExportPDF = () => {
@@ -286,7 +288,7 @@ const App: React.FC = () => {
                             <tbody>
                                 {invoiceItems.length > 0 ? (
                                     invoiceItems.map(item => (
-                                        <InvoiceRow key={item.productId} item={item} onUpdate={handleUpdateItem} onRemove={handleRemoveItem} onToggleDefault={handleToggleDefault} isMarkedAsDefault={newlyAddedDefaults.has(item.productId)} />
+                                        <InvoiceRow key={item.productId} item={item} onUpdate={handleUpdateItem} onRemove={handleRemoveItem} />
                                     ))
                                 ) : (
                                     <tr><td colSpan={6} className="text-center p-8 text-gray-500">
@@ -320,7 +322,7 @@ const App: React.FC = () => {
 
                     <div className="mt-8 flex flex-col-reverse md:flex-row justify-between items-start gap-6">
                          <div className="flex space-x-2 space-x-reverse">
-                           <button onClick={handleSaveInvoice} disabled={selectedPatientId === 'all' || (invoiceItems.length > 0 && newlyAddedDefaults.size === 0)} className="flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                           <button onClick={handleSaveInvoice} disabled={selectedPatientId === 'all'} className="flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
                                <SaveIcon /><span>حفظ التغييرات للمريض</span>
                             </button>
                              <button onClick={handleExportPDF} disabled={invoiceItems.length === 0} className="flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:bg-gray-400">
