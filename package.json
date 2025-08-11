@@ -9,10 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react-dom": "^19.1.1",
-    "jspdf": "^3.0.1",
-    "react": "^19.1.1",
-    "jspdf-autotable": "^5.0.2"
+    "react-dom": "^18.2.0",
+    "jspdf": "^2.5.1",
+    "react": "^18.2.0",
+    "jspdf-autotable": "^3.5.28"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

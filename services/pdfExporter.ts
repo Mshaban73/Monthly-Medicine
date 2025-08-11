@@ -1,35 +1,20 @@
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { InvoiceItem, Patient } from '../types';
-
-// By not importing jspdf, we force the use of the global window.jspdf object,
-// which is where the Amiri font and autotable plugin from index.html are attached.
-
-// Manually declare the necessary types for the jsPDF instance from the window object.
-// This avoids TypeScript errors without importing conflicting ES modules.
-interface jsPDFWithAutoTable {
-  autoTable: (options: any) => jsPDFWithAutoTable;
-  lastAutoTable?: { finalY: number };
-  setFont: (fontName: string, fontStyle?: string) => jsPDFWithAutoTable;
-  setFontSize: (size: number) => jsPDFWithAutoTable;
-  text: (text: string | string[], x: number, y: number, options?: any) => jsPDFWithAutoTable;
-  internal: {
-    pageSize: {
-      getWidth: () => number;
-    };
-  };
-  save: (filename: string) => void;
-}
+import { AMIRI_FONT_BASE64 } from './AmiriFont'; // Keep font data separate for cleanliness
 
 export const exportToPDF = (
     patient: Patient | null,
     items: InvoiceItem[],
     totals: { subtotal: number; discount: number; grandTotal: number }
 ) => {
-    // Use the jsPDF constructor from the window object. This ensures we get the
-    // instance that has been patched by the font file and the autotable plugin.
-    const jsPDFConstructor = (window as any).jspdf.jsPDF;
-    const doc = new jsPDFConstructor() as jsPDFWithAutoTable;
+    const doc = new jsPDF();
     
-    // Set the font to Amiri. This is the critical step to render Arabic correctly.
+    // 1. Add the font file to the virtual file system.
+    doc.addFileToVFS('Amiri-Regular.ttf', AMIRI_FONT_BASE64);
+    // 2. Add the font to jsPDF.
+    doc.addFont('Amiri-Regular.ttf', 'Amiri-Regular', 'normal');
+    // 3. Set the font for the entire document.
     doc.setFont('Amiri-Regular');
 
     const patientName = patient ? patient.name : 'كل الأصناف';
@@ -45,24 +30,24 @@ export const exportToPDF = (
     doc.setFontSize(12);
     doc.text(date, pageWidth - 14, 22, { align: 'right' });
 
-    // For proper RTL tables, we must define columns in their visual order (right to left).
-    const tableColumn = ["الصنف", "السعر", "الكمية", "الخصم (%)", "الصافي"];
+    // For proper RTL tables, define columns in their visual order (right to left).
+    const tableColumn = ["الصافي", "الخصم (%)", "الكمية", "السعر", "الصنف"];
     const tableRows: (string | number)[][] = [];
 
     items.forEach(item => {
         const netPrice = (item.price * item.quantity * (1 - item.discount / 100)).toFixed(2);
-        // Create the row data in the same visual order as the headers.
+        // Create row data in the same visual order as headers (right-to-left).
         const itemData = [
-            item.name,
-            item.price.toFixed(2),
-            item.quantity,
-            item.discount,
             netPrice,
+            item.discount,
+            item.quantity,
+            item.price.toFixed(2),
+            item.name,
         ];
         tableRows.push(itemData);
     });
 
-    doc.autoTable({
+    autoTable(doc, {
         head: [tableColumn],
         body: tableRows,
         startY: 30,
@@ -75,15 +60,15 @@ export const exportToPDF = (
         },
         styles: {
             font: 'Amiri-Regular', // Specify the font for all cells
-            halign: 'center', // Center-align numeric columns
+            halign: 'center',
         },
         columnStyles: {
-            // Right-align the first column (الصنف) for a clean RTL look.
-            0: { halign: 'right', cellWidth: 'auto' }, 
+            // Right-align the last column (الصنف) for a clean RTL look.
+            4: { halign: 'right' }, 
         },
     });
 
-    const finalY = doc.lastAutoTable?.finalY || 30;
+    const finalY = (doc as any).lastAutoTable?.finalY || 30;
     const summaryX = pageWidth - 14;
     const summaryStartY = finalY + 10;
 
@@ -92,7 +77,7 @@ export const exportToPDF = (
     doc.text(`مجموع الخصم: ${totals.discount.toFixed(2)}`, summaryX, summaryStartY + 7, { align: 'right' });
     
     doc.setFontSize(14);
-    doc.setFont('Amiri-Regular', 'bold');
+    doc.setFont('Amiri-Regular', 'normal'); // Set font to normal weight for the final total
     doc.text(`الإجمالي النهائي: ${totals.grandTotal.toFixed(2)}`, summaryX, summaryStartY + 15, { align: 'right' });
 
     doc.save(`فاتورة-${patientName.replace(/\s/g, '_')}-${new Date().toISOString().slice(0,10)}.pdf`);
