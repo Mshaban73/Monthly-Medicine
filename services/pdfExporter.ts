@@ -1,14 +1,22 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { InvoiceItem, Patient } from '../types';
-import { AMIRI_FONT_BASE64 } from './AmiriFont'; // Keep font data separate for cleanliness
+import { AMIRI_FONT_BASE64 } from './AmiriFont';
+
+// Extend the jsPDF interface to include the autoTable plugin's properties for type safety
+interface jsPDFWithAutoTable extends jsPDF {
+    lastAutoTable?: {
+        finalY?: number;
+    };
+}
 
 export const exportToPDF = (
     patient: Patient | null,
     items: InvoiceItem[],
     totals: { subtotal: number; discount: number; grandTotal: number }
 ) => {
-    const doc = new jsPDF();
+    // Initialize with the extended interface for better type checking
+    const doc: jsPDFWithAutoTable = new jsPDF();
     
     // 1. Add the font file to the virtual file system.
     doc.addFileToVFS('Amiri-Regular.ttf', AMIRI_FONT_BASE64);
@@ -68,7 +76,8 @@ export const exportToPDF = (
         },
     });
 
-    const finalY = (doc as any).lastAutoTable?.finalY || 30;
+    // Use the type-safe property from our extended interface
+    const finalY = doc.lastAutoTable?.finalY || 30;
     const summaryX = pageWidth - 14;
     const summaryStartY = finalY + 10;
 
