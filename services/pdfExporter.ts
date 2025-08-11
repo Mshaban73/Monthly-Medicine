@@ -10,21 +10,38 @@ interface jsPDFWithAutoTable extends jsPDF {
 }
 
 // A global variable to cache the fetched font to avoid re-downloading on subsequent clicks.
-let amiriFont: ArrayBuffer | null = null;
+let amiriFontBinary: string | null = null;
 
-async function getAmiriFont(): Promise<ArrayBuffer> {
-    if (amiriFont) {
-        return amiriFont;
+// Function to convert ArrayBuffer to a binary string that jsPDF can understand.
+function arrayBufferToBinaryString(buffer: ArrayBuffer): string {
+    const uint8 = new Uint8Array(buffer);
+    let binaryString = '';
+    // This is a performance-optimized way to do the conversion for large files.
+    const CHUNK_SIZE = 0x8000;
+    for (let i = 0; i < uint8.length; i += CHUNK_SIZE) {
+        binaryString += String.fromCharCode.apply(null, Array.from(uint8.subarray(i, i + CHUNK_SIZE)));
     }
-    // Fetch the font from a reliable CDN (jsDelivr serving from Google Fonts GitHub repo)
+    return binaryString;
+}
+
+
+async function getAmiriFont(): Promise<string> {
+    if (amiriFontBinary) {
+        return amiriFontBinary;
+    }
+    // Fetch the font from a reliable CDN
     const fontUrl = 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/amiri/Amiri-Regular.ttf';
     const response = await fetch(fontUrl);
     if (!response.ok) {
         throw new Error(`Failed to fetch font: ${response.statusText}`);
     }
     const fontBuffer = await response.arrayBuffer();
-    amiriFont = fontBuffer; // Cache the result
-    return fontBuffer;
+    
+    // --- KEY FIX ---
+    // Convert the ArrayBuffer to a binary string, which is what addFileToVFS expects.
+    const binaryFont = arrayBufferToBinaryString(fontBuffer);
+    amiriFontBinary = binaryFont; // Cache the result
+    return binaryFont;
 }
 
 
@@ -36,16 +53,15 @@ export const exportToPDF = async (
     try {
         const doc: jsPDFWithAutoTable = new jsPDF();
         
-        // --- KEY FIX ---
-        // Fetch the font file as an ArrayBuffer. This is the most reliable method.
-        const fontBuffer = await getAmiriFont();
+        // Fetch the font file as a binary string.
+        const fontBinary = await getAmiriFont();
 
-        // 1. Add the raw font file (as ArrayBuffer) to the virtual file system.
-        doc.addFileToVFS('Amiri-Regular.ttf', fontBuffer as any); // cast to any to avoid type mismatch
+        // 1. Add the raw font file (as a binary string) to the virtual file system.
+        doc.addFileToVFS('Amiri.ttf', fontBinary);
         // 2. Add the font to jsPDF.
-        doc.addFont('Amiri-Regular.ttf', 'Amiri-Regular', 'normal');
+        doc.addFont('Amiri.ttf', 'Amiri', 'normal');
         // 3. Set the font for the entire document.
-        doc.setFont('Amiri-Regular');
+        doc.setFont('Amiri');
 
         const patientName = patient ? patient.name : 'كل الأصناف';
         const title = `فاتورة لـ: ${patientName}`;
@@ -82,11 +98,11 @@ export const exportToPDF = async (
             headStyles: {
                 fillColor: [41, 128, 185],
                 textColor: 255,
-                font: 'Amiri-Regular',
+                font: 'Amiri',
                 halign: 'center',
             },
             styles: {
-                font: 'Amiri-Regular',
+                font: 'Amiri',
                 halign: 'center',
             },
             columnStyles: {
