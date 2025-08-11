@@ -78,6 +78,8 @@ const App: React.FC = () => {
     const [selectedPatientId, setSelectedPatientId] = useState<string>('all');
     const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
     const [statusMessage, setStatusMessage] = useState<{text: string; type: 'success' | 'error'} | null>(null);
+    const [isExporting, setIsExporting] = useState(false);
+
     
     // --- Effects to save data to localStorage ---
     useEffect(() => {
@@ -175,11 +177,21 @@ const App: React.FC = () => {
         setSelectedPatientId('all'); // Reset after saving
     };
     
-    const handleExportPDF = () => {
-        if(invoiceItems.length === 0) return;
-        const patient = patients.find(p => p.id === selectedPatientId) || null;
-        exportToPDF(patient, invoiceItems, totals);
+    const handleExportPDF = async () => {
+        if(invoiceItems.length === 0 || isExporting) return;
+
+        setIsExporting(true);
+        try {
+            const patient = patients.find(p => p.id === selectedPatientId) || null;
+            await exportToPDF(patient, invoiceItems, totals);
+        } catch (error) {
+            console.error("Export failed in App component", error);
+            showStatusMessage('فشل تصدير PDF. يرجى التحقق من الكونسول.', 'error');
+        } finally {
+            setIsExporting(false);
+        }
     };
+
 
     // --- Data Management Handlers ---
 
@@ -325,8 +337,8 @@ const App: React.FC = () => {
                            <button onClick={handleSaveInvoice} disabled={selectedPatientId === 'all'} className="flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
                                <SaveIcon /><span>حفظ التغييرات للمريض</span>
                             </button>
-                             <button onClick={handleExportPDF} disabled={invoiceItems.length === 0} className="flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:bg-gray-400">
-                               <ExportIcon /><span>تصدير PDF</span>
+                             <button onClick={handleExportPDF} disabled={invoiceItems.length === 0 || isExporting} className="flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                               <ExportIcon /><span>{isExporting ? 'جاري التصدير...' : 'تصدير PDF'}</span>
                             </button>
                         </div>
 

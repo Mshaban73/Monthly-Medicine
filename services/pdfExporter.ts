@@ -1,7 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { InvoiceItem, Patient } from '../types';
-import { AMIRI_FONT_BASE64 } from './AmiriFont';
 
 // Extend the jsPDF interface to include the autoTable plugin's properties for type safety
 interface jsPDFWithAutoTable extends jsPDF {
@@ -10,7 +9,26 @@ interface jsPDFWithAutoTable extends jsPDF {
     };
 }
 
-export const exportToPDF = (
+// A global variable to cache the fetched font to avoid re-downloading on subsequent clicks.
+let amiriFont: ArrayBuffer | null = null;
+
+async function getAmiriFont(): Promise<ArrayBuffer> {
+    if (amiriFont) {
+        return amiriFont;
+    }
+    // Fetch the font from a reliable CDN (jsDelivr serving from Google Fonts GitHub repo)
+    const fontUrl = 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/amiri/Amiri-Regular.ttf';
+    const response = await fetch(fontUrl);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch font: ${response.statusText}`);
+    }
+    const fontBuffer = await response.arrayBuffer();
+    amiriFont = fontBuffer; // Cache the result
+    return fontBuffer;
+}
+
+
+export const exportToPDF = async (
     patient: Patient | null,
     items: InvoiceItem[],
     totals: { subtotal: number; discount: number; grandTotal: number }
@@ -19,11 +37,11 @@ export const exportToPDF = (
         const doc: jsPDFWithAutoTable = new jsPDF();
         
         // --- KEY FIX ---
-        // Decode the Base64 string into a binary string. This is crucial for jsPDF to correctly parse the font file.
-        const decodedFont = atob(AMIRI_FONT_BASE64);
+        // Fetch the font file as an ArrayBuffer. This is the most reliable method.
+        const fontBuffer = await getAmiriFont();
 
-        // 1. Add the raw (decoded) font file to the virtual file system.
-        doc.addFileToVFS('Amiri-Regular.ttf', decodedFont);
+        // 1. Add the raw font file (as ArrayBuffer) to the virtual file system.
+        doc.addFileToVFS('Amiri-Regular.ttf', fontBuffer as any); // cast to any to avoid type mismatch
         // 2. Add the font to jsPDF.
         doc.addFont('Amiri-Regular.ttf', 'Amiri-Regular', 'normal');
         // 3. Set the font for the entire document.
@@ -35,20 +53,17 @@ export const exportToPDF = (
         
         const pageWidth = doc.internal.pageSize.getWidth();
         
-        // Draw text from right to left using the `align: 'right'` option.
         doc.setFontSize(18);
         doc.text(title, pageWidth - 14, 15, { align: 'right' });
         
         doc.setFontSize(12);
         doc.text(date, pageWidth - 14, 22, { align: 'right' });
 
-        // For proper RTL tables, define columns in their visual order (right to left).
         const tableColumn = ["الصافي", "الخصم (%)", "الكمية", "السعر", "الصنف"];
         const tableRows: (string | number)[][] = [];
 
         items.forEach(item => {
             const netPrice = (item.price * item.quantity * (1 - item.discount / 100)).toFixed(2);
-            // Create row data in the same visual order as headers (right-to-left).
             const itemData = [
                 netPrice,
                 item.discount,
@@ -67,20 +82,18 @@ export const exportToPDF = (
             headStyles: {
                 fillColor: [41, 128, 185],
                 textColor: 255,
-                font: 'Amiri-Regular', // Specify the font for the header
+                font: 'Amiri-Regular',
                 halign: 'center',
             },
             styles: {
-                font: 'Amiri-Regular', // Specify the font for all cells
+                font: 'Amiri-Regular',
                 halign: 'center',
             },
             columnStyles: {
-                // Right-align the last column (الصنف) for a clean RTL look.
                 4: { halign: 'right' }, 
             },
         });
 
-        // Use the type-safe property from our extended interface
         const finalY = doc.lastAutoTable?.finalY || 30;
         const summaryX = pageWidth - 14;
         const summaryStartY = finalY + 10;
@@ -90,12 +103,11 @@ export const exportToPDF = (
         doc.text(`مجموع الخصم: ${totals.discount.toFixed(2)}`, summaryX, summaryStartY + 7, { align: 'right' });
         
         doc.setFontSize(14);
-        doc.setFont('Amiri-Regular', 'normal'); // Set font to normal weight for the final total
         doc.text(`الإجمالي النهائي: ${totals.grandTotal.toFixed(2)}`, summaryX, summaryStartY + 15, { align: 'right' });
 
         doc.save(`فاتورة-${patientName.replace(/\s/g, '_')}-${new Date().toISOString().slice(0,10)}.pdf`);
     } catch (error) {
         console.error("Failed to generate PDF:", error);
-        alert("حدث خطأ أثناء إنشاء ملف PDF. يرجى مراجعة الكونسول لمزيد من التفاصيل.");
+        alert("حدث خطأ أثناء إنشاء ملف PDF. تأكد من اتصالك بالإنترنت وحاول مرة أخرى.");
     }
 };
