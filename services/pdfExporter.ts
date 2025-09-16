@@ -2,17 +2,14 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { InvoiceItem, Patient } from '../types';
 
-// Extend the jsPDF interface to include the autoTable plugin's properties for type safety
 interface jsPDFWithAutoTable extends jsPDF {
     lastAutoTable?: {
         finalY?: number;
     };
 }
 
-// A global variable to cache the fetched font to avoid re-downloading on subsequent clicks.
 let amiriFontBinary: string | null = null;
 
-// Function to convert ArrayBuffer to a binary string that jsPDF can understand.
 function arrayBufferToBinaryString(buffer: ArrayBuffer): string {
     const uint8 = new Uint8Array(buffer);
     let binaryString = '';
@@ -22,7 +19,6 @@ function arrayBufferToBinaryString(buffer: ArrayBuffer): string {
     }
     return binaryString;
 }
-
 
 async function getAmiriFont(): Promise<string> {
     if (amiriFontBinary) {
@@ -40,7 +36,6 @@ async function getAmiriFont(): Promise<string> {
     return binaryFont;
 }
 
-
 export const exportToPDF = async (
     patient: Patient | null,
     items: InvoiceItem[],
@@ -48,7 +43,6 @@ export const exportToPDF = async (
 ) => {
     try {
         const doc: jsPDFWithAutoTable = new jsPDF();
-        
         const fontBinary = await getAmiriFont();
 
         doc.addFileToVFS('Amiri.ttf', fontBinary);
@@ -58,54 +52,40 @@ export const exportToPDF = async (
         const patientName = patient ? patient.name : 'كل الأصناف';
         const title = `فاتورة لـ: ${patientName}`;
         
-        // ======================= START: THE REAL FIX =======================
-        // The problem is mixing RTL and LTR. We add a special invisible character '\u200E'
-        // (the Left-to-Right Mark) right before the numbers to force them to render correctly.
-        const dateString = new Date().toLocaleDateString('ar-EG-u-nu-latn');
-        const date = `التاريخ: \u200E${dateString}`;
-        // ======================== END: THE REAL FIX ========================
-        
         const pageWidth = doc.internal.pageSize.getWidth();
         
         doc.setFontSize(18);
         doc.text(title, pageWidth - 14, 15, { align: 'right' });
         
         doc.setFontSize(12);
-        doc.text(date, pageWidth - 14, 22, { align: 'right' });
+        
+        // --- الحل الأول: فصل الكلمة عن التاريخ ---
+        const dateLabel = "التاريخ:";
+        const dateString = new Date().toLocaleDateString('en-GB'); // Use a clear LTR format like dd/mm/yyyy
+
+        // طباعة الكلمة على اليمين
+        doc.text(dateLabel, pageWidth - 14, 22, { align: 'right' });
+
+        // طباعة التاريخ على اليسار
+        doc.text(dateString, 14, 22, { align: 'left' });
 
         const tableColumn = ["الصافي", "الخصم (%)", "الكمية", "السعر", "الصنف"];
         const tableRows: (string | number)[][] = [];
 
         items.forEach(item => {
             const netPrice = (item.price * item.quantity * (1 - item.discount / 100)).toFixed(2);
-            const itemData = [
-                netPrice,
-                item.discount,
-                item.quantity,
-                item.price.toFixed(2),
-                item.name,
-            ];
+            const itemData = [ netPrice, item.discount, item.quantity, item.price.toFixed(2), item.name ];
             tableRows.push(itemData);
         });
 
         autoTable(doc, {
             head: [tableColumn],
             body: tableRows,
-            startY: 30,
+            startY: 30, // يبدأ الجدول بعد سطر التاريخ
             theme: 'grid',
-            headStyles: {
-                fillColor: [41, 128, 185],
-                textColor: 255,
-                font: 'Amiri',
-                halign: 'center',
-            },
-            styles: {
-                font: 'Amiri',
-                halign: 'center',
-            },
-            columnStyles: {
-                4: { halign: 'right' }, 
-            },
+            headStyles: { fillColor: [41, 128, 185], textColor: 255, font: 'Amiri', halign: 'center' },
+            styles: { font: 'Amiri', halign: 'center' },
+            columnStyles: { 4: { halign: 'right' } },
         });
 
         const finalY = doc.lastAutoTable?.finalY || 30;
