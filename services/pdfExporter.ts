@@ -58,29 +58,20 @@ export const exportToPDF = async (
         const patientName = patient ? patient.name : 'كل الأصناف';
         const title = `فاتورة لـ: ${patientName}`;
         
+        // ======================= START: THE REAL FIX =======================
+        // The problem is mixing RTL and LTR. We add a special invisible character '\u200E'
+        // (the Left-to-Right Mark) right before the numbers to force them to render correctly.
+        const dateString = new Date().toLocaleDateString('ar-EG-u-nu-latn');
+        const date = `التاريخ: \u200E${dateString}`;
+        // ======================== END: THE REAL FIX ========================
+        
         const pageWidth = doc.internal.pageSize.getWidth();
         
         doc.setFontSize(18);
         doc.text(title, pageWidth - 14, 15, { align: 'right' });
         
-        // ======================= START: THE ONLY FIX NEEDED =======================
-        // The original problem was mixing RTL text ("التاريخ") with LTR numbers in one string.
-        // The fix is to print them separately, controlling their position manually.
-        
-        const dateLabel = "التاريخ:";
-        const dateString = new Date().toLocaleDateString('ar-EG-u-nu-latn'); // e.g., "١٦‏/٩‏/٢٠٢٥" or "16/9/2025"
-        
         doc.setFontSize(12);
-        
-        // 1. Print the Arabic label aligned to the far right.
-        doc.text(dateLabel, pageWidth - 14, 22, { align: 'right' });
-        
-        // 2. Measure the width of the label to position the date number next to it.
-        const labelWidth = doc.getTextWidth(dateLabel);
-        
-        // 3. Print the date string to the left of the label.
-        doc.text(dateString, pageWidth - 14 - labelWidth - 2, 22); // Subtract label width and a small space
-        // ======================== END: THE ONLY FIX NEEDED ========================
+        doc.text(date, pageWidth - 14, 22, { align: 'right' });
 
         const tableColumn = ["الصافي", "الخصم (%)", "الكمية", "السعر", "الصنف"];
         const tableRows: (string | number)[][] = [];
